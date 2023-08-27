@@ -1,0 +1,82 @@
+import pandas as pd
+weather = pd.read_csv("local_weather till 18_06.csv", index_col="DATE")
+print(weather)
+weather.apply(pd.isnull).sum()/weather.shape[0]
+core_weather = weather[["PRCP", "SNOW", "SNWD", "TMAX", "TMIN"]].copy()
+core_weather.columns = ["precip", "snow", "snow_depth", "temp_max", "temp_min"]
+core_weather.apply(pd.isnull).sum()
+core_weather["snow"].value_counts()
+core_weather["snow_depth"].value_counts()
+del core_weather["snow"]
+del core_weather["snow_depth"]
+core_weather[pd.isnull(core_weather["precip"])]
+core_weather.loc["2013-12-15",:]
+core_weather["precip"].value_counts() / core_weather.shape[0]
+core_weather["precip"] = core_weather["precip"].fillna(0)
+core_weather.apply(pd.isnull).sum()
+core_weather[pd.isnull(core_weather["temp_min"])]
+core_weather.loc["2011-12-18":"2011-12-28"]
+core_weather = core_weather.fillna(method="ffill")
+core_weather.apply(pd.isnull).sum()
+# Check for missing value defined in data documentation
+core_weather.apply(lambda x: (x == 9999).sum())
+print(core_weather.dtypes)
+core_weather.index
+core_weather.index = pd.to_datetime(core_weather.index)
+print(core_weather.index)
+core_weather.index.year
+core_weather[["temp_max", "temp_min"]].plot()
+core_weather.index.year.value_counts().sort_index()
+core_weather["precip"].plot()
+core_weather.groupby(core_weather.index.year).apply(lambda x: x["precip"].sum()).plot()
+core_weather["target"] = core_weather.shift(-1)["temp_max"]
+print(core_weather)
+core_weather = core_weather.iloc[:-1,:].copy()
+print(core_weather)
+#model1
+from sklearn.linear_model import Ridge
+reg = Ridge(alpha=.1)
+predictors = ["precip", "temp_max", "temp_min"]
+train = core_weather.loc[:"2020-12-31"]
+test = core_weather.loc["2021-01-01":]
+train
+test
+reg.fit(train[predictors], train["target"])
+predictions = reg.predict(test[predictors])
+from sklearn.metrics import mean_squared_error
+mean_squared_error(test["target"], predictions)
+combined = pd.concat([test["target"], pd.Series(predictions, index=test.index)], axis=1)
+combined.columns = ["actual", "predictions"]
+combined
+combined.plot()
+core_weather["month_max"] = core_weather["temp_max"].rolling(30).mean()
+
+core_weather["month_day_max"] = core_weather["month_max"] / core_weather["temp_max"]
+
+core_weather["max_min"] = core_weather["temp_max"] / core_weather["temp_min"]
+core_weather = core_weather.iloc[30:,:].copy()
+def create_predictions(predictors, core_weather, reg):
+    train = core_weather.loc[:"2020-12-31"]
+    test = core_weather.loc["2021-01-01":]
+
+    reg.fit(train[predictors], train["target"])
+    predictions = reg.predict(test[predictors])
+
+    error = mean_squared_error(test["target"], predictions)
+    
+    combined = pd.concat([test["target"], pd.Series(predictions, index=test.index)], axis=1)
+    combined.columns = ["actual", "predictions"]
+    return error, combined
+predictors = ["precip", "temp_max", "temp_min", "month_day_max", "max_min"]
+
+error, combined = create_predictions(predictors, core_weather, reg)
+error
+combined.plot()
+core_weather["monthly_avg"] = core_weather["temp_max"].groupby(core_weather.index.month, group_keys=False).apply(lambda x: x.expanding(1).mean())
+core_weather["day_of_year_avg"] = core_weather["temp_max"].groupby(core_weather.index.day_of_year, group_keys=False).apply(lambda x: x.expanding(1).mean())
+error, combined = create_predictions(predictors + ["monthly_avg", "day_of_year_avg"], core_weather, reg)
+error
+reg.coef_
+core_weather.corr()["target"]
+combined["diff"] = (combined["actual"] - combined["predictions"]).abs()
+combined.sort_values("diff", ascending=False).head(10)

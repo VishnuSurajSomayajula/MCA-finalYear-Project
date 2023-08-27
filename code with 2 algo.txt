@@ -1,0 +1,95 @@
+# Import required libraries
+import pandas as pd
+from sklearn.linear_model import Ridge
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
+
+# Load data
+weather = pd.read_csv("local_weather till 18_06.csv", index_col="DATE")
+
+weather.apply(pd.isnull).sum()/weather.shape[0]
+core_weather = weather[["PRCP", "SNOW", "SNWD", "TMAX", "TMIN"]].copy()
+core_weather.columns = ["precip", "snow", "snow_depth", "temp_max", "temp_min"]
+core_weather
+core_weather.apply(pd.isnull).sum()
+core_weather["snow"].value_counts()
+core_weather["snow_depth"].value_counts()
+
+del core_weather["snow"]
+del core_weather["snow_depth"]
+core_weather[pd.isnull(core_weather["precip"])]
+core_weather.loc["2013-12-15",:]
+core_weather["precip"].value_counts() / core_weather.shape[0]
+core_weather["precip"] = core_weather["precip"].fillna(0)
+core_weather.apply(pd.isnull).sum()
+core_weather[pd.isnull(core_weather["temp_min"])]
+core_weather.loc["2011-12-18":"2011-12-28"]
+core_weather = core_weather.fillna(method="ffill")
+core_weather.apply(pd.isnull).sum()
+# Check for missing value defined in data documentation
+core_weather.apply(lambda x: (x == 9999).sum())
+print(core_weather.dtypes)
+core_weather.index
+core_weather.index = pd.to_datetime(core_weather.index)
+print(core_weather.index)
+core_weather.index.year
+core_weather[["temp_max", "temp_min"]].plot()
+core_weather.index.year.value_counts().sort_index()
+core_weather["precip"].plot()
+core_weather.groupby(core_weather.index.year).apply(lambda x: x["precip"].sum()).plot()
+core_weather["target"] = core_weather.shift(-1)["temp_max"]
+print(core_weather)
+core_weather = core_weather.iloc[:-1,:].copy()
+print(core_weather)
+# Model 1: Ridge Regression
+reg = Ridge(alpha=0.1)
+predictors = ["precip", "temp_max", "temp_min"]
+train = core_weather.loc[:"2020-12-31"]
+test = core_weather.loc["2021-01-01":]
+reg.fit(train[predictors], train["target"])
+ridge_predictions = reg.predict(test[predictors])
+ridge_mse = mean_squared_error(test["target"], ridge_predictions)
+
+# Model 2: Random Forest Regression
+rf_reg = RandomForestRegressor(n_estimators=100, random_state=0)
+rf_reg.fit(train[predictors], train["target"])
+rf_predictions = rf_reg.predict(test[predictors])
+rf_mse = mean_squared_error(test["target"], rf_predictions)
+
+# Print Mean Squared Errors for both models
+print("Ridge Regression Mean Squared Error:", ridge_mse)
+print("Random Forest Mean Squared Error:", rf_mse)
+
+# Visualize Predictions of both models
+combined_ridge = pd.concat([test["target"], pd.Series(ridge_predictions, index=test.index)], axis=1)
+combined_ridge.columns = ["actual", "predictions"]
+combined_rf = pd.concat([test["target"], pd.Series(rf_predictions, index=test.index)], axis=1)
+combined_rf.columns = ["actual", "predictions"]
+actual = combined_ridge["actual"]
+reg_prediction = combined_ridge["predictions"]
+rf_predictions = combined_rf["predictions"]
+#roi = list[actual,reg_prediction,rf_predictions]
+rois = pd.DataFrame([actual, reg_prediction, rf_predictions ] )
+rois
+
+plt.figure(figsize=(12, 6))
+plt.plot(combined_ridge.index, combined_ridge["actual"], label="Actual")
+plt.plot(combined_ridge.index, combined_ridge["predictions"], label="Ridge Predictions")
+plt.plot(combined_rf.index, combined_rf["predictions"], label="Random Forest Predictions")
+plt.xlabel("Date")
+plt.ylabel("Temperature")
+plt.title("Temperature Predictions Comparison")
+plt.legend()
+plt.show()
+
+# Calculate Accuracy for both models
+def calculate_accuracy(predictions, actual):
+    return 1 - (sum((predictions - actual)**2) / len(actual)) / (sum((actual - actual.mean())**2) / len(actual))
+
+
+ridge_accuracy = calculate_accuracy(ridge_predictions, test["target"])
+rf_accuracy = calculate_accuracy(rf_predictions, test["target"])
+
+print("Ridge Regression Accuracy:", ridge_accuracy)
+print("Random Forest Accuracy:", rf_accuracy)
